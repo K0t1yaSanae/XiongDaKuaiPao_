@@ -7,7 +7,7 @@ public class FontLoader {
 
     public static Font loadCustomFont() {
         if (customFont != null) {
-            return customFont; // 已加载，直接返回
+            return customFont;
         }
 
         try {

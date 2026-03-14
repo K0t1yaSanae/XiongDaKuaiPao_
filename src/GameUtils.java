@@ -16,7 +16,6 @@ public class GameUtils {
     }
 
     public static void spawnNewObstacles(List<Rectangle> obstacles, long mapOffset, Random rand) {
-        // 修复核心：显式转换double到long
         long maxX = obstacles.stream()
                 .mapToLong(r -> (long) r.getX())
                 .max()

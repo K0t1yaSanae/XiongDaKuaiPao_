@@ -30,8 +30,8 @@ public class GamePanel extends JPanel {
 
         if (!game.isGameOver() && game.isGameStarted()) {
             g2.setColor(Color.WHITE);
-            g2.setFont(new Font("Arial", Font.PLAIN, 16));
-            g2.drawString("Running", 10, 20);
+            g2.setFont(FontLoader.getCustomFont(Font.PLAIN, 16));
+            g2.drawString("熊大快跑", 10, 20);
         }
     }
 }

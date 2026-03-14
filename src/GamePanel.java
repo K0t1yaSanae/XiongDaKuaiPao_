@@ -48,6 +48,17 @@ public class GamePanel extends JPanel {
             g2.setFont(FontLoader.getCustomFont(Font.PLAIN, 16));
             g2.drawString("W/S/D 移动 | 躲避障碍物", 10, 20);
         }
+        for (Rectangle c : game.getCoins()) {
+            int sx = (int) (c.x - game.getMapOffset());
+            g2.setColor(Color.YELLOW);
+            g2.fillOval(sx, c.y, c.width, c.height);
+            g2.setColor(Color.ORANGE);
+            g2.drawOval(sx, c.y, c.width, c.height);
+        }
+
+        g2.setColor(Color.WHITE);
+        g2.setFont(FontLoader.getCustomFont(Font.BOLD, 20));
+        g2.drawString("金币: " + game.getCoinCount(), GameConstants.WIDTH - 120, 30);
     }
 
     private void drawPropTip(Graphics2D g2) {

@@ -4,8 +4,8 @@ public class GameConstants {
     public static final int WIDTH = 800;
     public static final int HEIGHT = 600;
 
-    public static final int PLAYER_SIZE = 28;
-    public static final int CHASER_SIZE = 28;
+    public static final int PLAYER_SIZE = 32;
+    public static final int CHASER_SIZE = 38;
     public static final int OBSTACLE_SIZE = 40;
 
     public static final int PLAYER_AUTO_SPEED = 2;
@@ -30,4 +30,5 @@ public class GameConstants {
     public static final Color DEFAULT_OBSTACLE_COLOR = Color.RED;
     public static final Color PROMPT_TEXT_COLOR = Color.WHITE;
     public static final Color PROP_TIP_COLOR = Color.ORANGE;
+    public static final int COIN_SIZE = 20;
 }

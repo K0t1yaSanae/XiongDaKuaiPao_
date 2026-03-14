@@ -48,6 +48,9 @@ public class GameMain extends JFrame {
     private JButton btnCustomPlayer, btnCustomBackground, btnCustomChaser, btnCustomObstacle, btnStartGame;
     private JLabel gameOverLabel;
 
+    private List<Rectangle> coins = new ArrayList<>();
+    private int coinCount = 0;
+
     public GameMain() {
         setTitle("熊大快跑");
         setDefaultCloseOperation(EXIT_ON_CLOSE);
@@ -136,6 +139,8 @@ public class GameMain extends JFrame {
             resetPropState();
             obstacles.clear();
             props.clear();
+            coins.clear();
+            coinCount = 0;
 
             gameOverPane.setVisible(false);
             gamePanel.setVisible(false);
@@ -172,6 +177,7 @@ public class GameMain extends JFrame {
                 controlPlayer();
                 chaserFollowPlayer();
                 spawnObstacles();
+                checkCoinPickup();
                 checkPropPickup();
                 if (!isInvincible) {
                     checkObstacleHit();
@@ -205,7 +211,7 @@ public class GameMain extends JFrame {
         mainMenuPanel.setLayout(new GridLayout(6, 1, 20, 20));
         mainMenuPanel.setBorder(BorderFactory.createEmptyBorder(60, 200, 60, 200));
 
-        JLabel titleLabel = new JLabel("熊大快跑", SwingConstants.CENTER);
+        JLabel titleLabel = new JLabel("Auto Run Chase", SwingConstants.CENTER);
         titleLabel.setForeground(GameConstants.PROMPT_TEXT_COLOR);
         titleLabel.setFont(FontLoader.getCustomFont(Font.BOLD, 32));
         mainMenuPanel.add(titleLabel);
@@ -240,10 +246,31 @@ public class GameMain extends JFrame {
     }
 
     private void initImages() {
-        playerImage = ImageLoader.createDefaultImage(Color.CYAN, GameConstants.PLAYER_SIZE);
-        chaserImage = ImageLoader.createDefaultImage(Color.ORANGE, GameConstants.CHASER_SIZE);
+        playerImage = loadDefaultImage("pictures/1.png", GameConstants.PLAYER_SIZE);
+        if (playerImage == null) {
+            playerImage = ImageLoader.createDefaultImage(Color.CYAN, GameConstants.PLAYER_SIZE);
+        }
+
+        chaserImage = loadDefaultImage("pictures/2.png", GameConstants.CHASER_SIZE);
+        if (chaserImage == null) {
+            chaserImage = ImageLoader.createDefaultImage(Color.ORANGE, GameConstants.CHASER_SIZE);
+        }
+
         backgroundImage = ImageLoader.createDefaultImage(Color.BLACK, GameConstants.WIDTH, GameConstants.HEIGHT);
         obstacleImage = ImageLoader.createDefaultImage(Color.RED, GameConstants.OBSTACLE_SIZE);
+    }
+
+    private Image loadDefaultImage(String path, int size) {
+        try {
+            java.net.URL imgUrl = getClass().getClassLoader().getResource(path);
+            if (imgUrl == null) {
+                imgUrl = new java.net.URL("file:" + path);
+            }
+            Image image = new ImageIcon(imgUrl).getImage();
+            return image.getScaledInstance(size, size, Image.SCALE_SMOOTH);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private void initGamePanel() {
@@ -282,16 +309,24 @@ public class GameMain extends JFrame {
         propTip = "";
         propTipEndTime = 0;
         props.clear();
+        coins.clear();
+        coinCount = 0;
     }
 
     private void initObstacles() {
         obstacles.clear();
+        coins.clear();
         long lastX = GameConstants.INIT_OBSTACLE_START_X;
         for (int i = 0; i < GameConstants.INIT_OBSTACLE_COUNT; i++) {
             lastX += GameConstants.OBSTACLE_MIN_GAP + rand.nextInt(50);
             int y = rand.nextInt(GameConstants.HEIGHT - GameConstants.OBSTACLE_SIZE);
             obstacles.add(new Rectangle((int) lastX, y, GameConstants.OBSTACLE_SIZE, GameConstants.OBSTACLE_SIZE));
             spawnPropIfChance((int) lastX);
+
+            if (rand.nextBoolean()) {
+                int cy = rand.nextInt(GameConstants.HEIGHT - 20);
+                coins.add(new Rectangle((int) lastX + rand.nextInt(-30, 30), cy, 20, 20));
+            }
         }
     }
 
@@ -329,6 +364,13 @@ public class GameMain extends JFrame {
                 propIt.remove();
         }
 
+        Iterator<Rectangle> coinIt = coins.iterator();
+        while (coinIt.hasNext()) {
+            Rectangle c = coinIt.next();
+            if (c.x < mapOffset - 50)
+                coinIt.remove();
+        }
+
         long maxX = obstacles.stream()
                 .mapToLong(r -> (long) r.getX())
                 .max()
@@ -341,6 +383,11 @@ public class GameMain extends JFrame {
                 obstacles.add(new Rectangle((int) nx, ny, GameConstants.OBSTACLE_SIZE, GameConstants.OBSTACLE_SIZE));
                 spawnPropIfChance((int) nx);
                 maxX = nx;
+
+                if (rand.nextBoolean()) {
+                    int cy = rand.nextInt(GameConstants.HEIGHT - 20);
+                    coins.add(new Rectangle((int) nx + rand.nextInt(-30, 30), cy, 20, 20));
+                }
             }
         }
     }
@@ -379,6 +426,20 @@ public class GameMain extends JFrame {
             isSpeedUp = false;
             propTip = "加速效果结束！";
             propTipEndTime = currentTime + 2000;
+        }
+    }
+
+    private void checkCoinPickup() {
+        long px = mapOffset + playerX;
+        Rectangle playerBox = new Rectangle((int) px, playerY, GameConstants.PLAYER_SIZE, GameConstants.PLAYER_SIZE);
+
+        Iterator<Rectangle> it = coins.iterator();
+        while (it.hasNext()) {
+            Rectangle c = it.next();
+            if (playerBox.intersects(c)) {
+                it.remove();
+                coinCount++;
+            }
         }
     }
 
@@ -428,6 +489,8 @@ public class GameMain extends JFrame {
     public Image getObstacleImage() { return obstacleImage; }
     public List<Rectangle> getObstacles() { return obstacles; }
     public List<Prop> getProps() { return props; }
+    public List<Rectangle> getCoins() { return coins; }
+    public int getCoinCount() { return coinCount; }
     public int getPlayerX() { return playerX; }
     public int getPlayerY() { return playerY; }
     public int getChaserX() { return chaserX; }

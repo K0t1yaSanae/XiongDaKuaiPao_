@@ -16,7 +16,6 @@ public class WelcomePanel extends JPanel {
 
         new Timer(3000, e -> {
             setVisible(false);
-            game.showMainMenu();
         }).start();
     }
 

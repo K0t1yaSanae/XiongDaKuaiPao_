@@ -1,0 +1,937 @@
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.geom.AffineTransform;
+import java.io.*;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Random;
+
+import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.io.File;
+import java.io.IOException;
+import java.net.URL;
+
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
+
+// 核心手写动画组件（修复所有绘制问题）
+class LottiePlayer extends JPanel {
+    private boolean isPlaying = true;          // 动画是否正在播放
+    private boolean isAnimationDone = false;   // 动画是否完成
+    private long startTime;
+    private final int duration = 3000;         // 动画总时长3秒
+    private final Font customFont;             // 自定义hyw.ttf字体
+    private final String helloText = "hello";
+    private GameMain game;             // 引用主游戏类，用于跳转主界面
+
+    // 构造方法传入主游戏类引用
+    public LottiePlayer(String jsonPath, GameMain game) {
+        this.game = game;
+
+        // 1. 加载自定义字体fonts/hyw.ttf（优先加载，兜底兼容）
+        Font tempFont = null;
+        try {
+            // 读取hyw.ttf字体文件（支持项目根目录/资源目录）
+            java.net.URL fontUrl = getClass().getClassLoader().getResource("fonts/hyw.ttf");
+            if (fontUrl == null) {
+                // 资源目录找不到则读取项目根目录的fonts文件夹
+                java.io.File fontFile = new java.io.File("fonts/hyw.ttf");
+                if (fontFile.exists()) {
+                    fontUrl = fontFile.toURI().toURL();
+                }
+            }
+
+            if (fontUrl != null) {
+                tempFont = Font.createFont(Font.TRUETYPE_FONT, fontUrl.openStream()).deriveFont(Font.BOLD, 90);
+            }
+        } catch (Exception e) {
+            // 加载失败不报错，后续用兜底字体
+        }
+
+        // 兜底字体（确保100%有值）
+        if (tempFont != null) {
+            customFont = tempFont;
+        } else {
+            customFont = new Font("Arial", Font.BOLD, 90);
+        }
+
+        // 开启鼠标点击监听（用于动画完成后跳转）
+        addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (isAnimationDone) {
+                    game.showMainMenu(); // 点击进入主界面
+                }
+            }
+        });
+
+        setOpaque(true);
+        setBackground(Color.BLACK); // 设置黑色背景
+        setBounds(0, 0, GameMain.WIDTH, GameMain.HEIGHT);
+        startTime = System.currentTimeMillis();
+    }
+
+    @Override
+    protected void paintComponent(Graphics g) {
+        super.paintComponent(g); // 绘制黑色背景
+        if (!isPlaying && !isAnimationDone) return;
+
+        Graphics2D g2 = (Graphics2D) g;
+        // 开启抗锯齿，让手写轨迹更丝滑
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE);
+        g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        // 计算动画进度（0-1，连贯手写的核心）
+        long currentTime = System.currentTimeMillis() - startTime;
+        float progress = Math.min((float) currentTime / duration, 1.0f);
+
+        // 动画结束判断
+        if (progress >= 1) {
+            isPlaying = false;
+            isAnimationDone = true;
+        }
+
+        // 2. 核心：连贯一笔绘制Hello文字（无分段）
+        if (isPlaying) {
+            g2.setFont(customFont);
+            FontMetrics fm = g2.getFontMetrics();
+
+            // 文字居中计算
+            int textWidth = fm.stringWidth(helloText);
+            int textHeight = fm.getHeight();
+            int startX = (GameMain.WIDTH - textWidth) / 2;
+            int startY = (GameMain.HEIGHT + fm.getAscent()) / 2 - 50; // 上移50px，给提示文字留空间
+
+            // 创建Hello文字的完整矢量路径（连贯轨迹）
+            java.awt.font.GlyphVector gv = fm.getFont().createGlyphVector(
+                    g2.getFontRenderContext(), helloText
+            );
+            Shape textShape = gv.getOutline(startX, startY);
+
+            // 将矢量路径转为可遍历的GeneralPath
+            java.awt.geom.GeneralPath textPath = new java.awt.geom.GeneralPath(textShape);
+            java.awt.geom.PathIterator pathIterator = textPath.getPathIterator(null, 0.5); // 轨迹精细度
+
+            // 统计总轨迹点数
+            int totalPoints = 0;
+            float[] coords = new float[6];
+            while (!pathIterator.isDone()) {
+                pathIterator.currentSegment(coords);
+                totalPoints++;
+                pathIterator.next();
+            }
+
+            // 重新遍历路径，只绘制进度内的部分
+            pathIterator = textPath.getPathIterator(null, 0.5);
+            java.awt.geom.GeneralPath drawnPath = new java.awt.geom.GeneralPath();
+            int drawnPoints = (int) (totalPoints * progress);
+            int currentPoint = 0;
+
+            // 逐点绘制连贯轨迹
+            while (!pathIterator.isDone() && currentPoint < drawnPoints) {
+                int segmentType = pathIterator.currentSegment(coords);
+                switch (segmentType) {
+                    case java.awt.geom.PathIterator.SEG_MOVETO:
+                        drawnPath.moveTo(coords[0], coords[1]);
+                        break;
+                    case java.awt.geom.PathIterator.SEG_LINETO:
+                        drawnPath.lineTo(coords[0], coords[1]);
+                        break;
+                    case java.awt.geom.PathIterator.SEG_QUADTO:
+                        drawnPath.quadTo(coords[0], coords[1], coords[2], coords[3]);
+                        break;
+                    case java.awt.geom.PathIterator.SEG_CUBICTO:
+                        drawnPath.curveTo(coords[0], coords[1], coords[2], coords[3], coords[4], coords[5]);
+                        break;
+                    case java.awt.geom.PathIterator.SEG_CLOSE:
+                        drawnPath.closePath();
+                        break;
+                }
+                currentPoint++;
+                pathIterator.next();
+            }
+
+            // 设置手写笔样式（白色、粗5px、圆润笔锋）
+            g2.setColor(Color.WHITE);
+            g2.setStroke(new BasicStroke(5, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+            // 绘制连贯的手写轨迹
+            g2.draw(drawnPath);
+
+            // 3. 绘制手写笔尖（跟随最后一个点）
+            if (progress < 1.0f && currentPoint > 0) {
+                g2.setColor(new Color(76, 175, 80)); // 绿色笔尖
+                g2.fillOval((int) coords[0] - 7, (int) coords[1] - 7, 14, 14);
+                g2.setColor(Color.WHITE); // 笔尖中心
+                g2.fillOval((int) coords[0] - 3, (int) coords[1] - 3, 6, 6);
+            }
+
+            repaint(); // 重绘下一帧
+        }
+
+        // 4. 动画完成后显示完整Hello+提示文字
+        if (isAnimationDone) {
+            // 绘制完整的Hello文字（白色）
+            g2.setFont(customFont);
+            FontMetrics fm = g2.getFontMetrics();
+            int textWidth = fm.stringWidth(helloText);
+            int startX = (GameMain.WIDTH - textWidth) / 2;
+            int startY = (GameMain.HEIGHT + fm.getAscent()) / 2 - 50;
+
+            g2.setColor(Color.WHITE);
+            g2.drawString(helloText, startX, startY);
+
+            // 绘制「点击任意处进入主界面」提示文字
+            String tipText = "点击任意处进入主界面";
+            Font tipFont = new Font("微软雅黑", Font.PLAIN, 24);
+            g2.setFont(tipFont);
+            FontMetrics tipFm = g2.getFontMetrics();
+            int tipX = (GameMain.WIDTH - tipFm.stringWidth(tipText)) / 2;
+            int tipY = startY + 100; // Hello下方100px处
+
+            // 提示文字加轻微闪烁效果
+            int alpha = (int) (180 + 75 * Math.sin(System.currentTimeMillis() / 500.0));
+            g2.setColor(new Color(255, 255, 255, alpha));
+            g2.drawString(tipText, tipX, tipY);
+        }
+    }
+
+    // 判断动画是否完成（供主游戏类调用）
+    public boolean isAnimationFinished() {
+        return isAnimationDone;
+    }
+}
+
+public class GameMain extends JFrame {
+    public static final int WIDTH = 800;
+    public static final int HEIGHT = 600;
+
+    private int playerX = 150;
+    private int playerY = HEIGHT / 2;
+    private int chaserX = 50;
+    private int chaserY = HEIGHT / 2;
+    private long mapOffset = 0;
+    private boolean gameOver = false;
+    private boolean gameStarted = false;
+    private boolean isInGame = false;
+
+    private final List<Prop> props = new ArrayList<>();
+    private boolean isInvincible = false;
+    private boolean isSpeedUp = false;
+    private long invincibleEndTime = 0;
+    private long speedUpEndTime = 0;
+    private String propTip = "";
+    private long propTipEndTime = 0;
+
+    private Image playerImage;
+    private Image chaserImage;
+    private Image backgroundImage;
+    private Image obstacleImage;
+
+    private final List<Rectangle> obstacles = new ArrayList<>();
+    private final Random rand = new Random();
+
+    private boolean up, down, right;
+
+    private JPanel mainMenuPanel;
+    private JPanel gameOverPane;
+    private GamePanel gamePanel;
+    private JPanel welcomePanel; // 改为普通JPanel，集成Lottie动画
+    private LottiePlayer lottiePlayer; // Lottie动画播放器
+    private JButton btnRestart;
+    private JButton btnResume;
+    private JButton btnCustomPlayer, btnCustomBackground, btnCustomChaser, btnCustomObstacle, btnStartGame;
+    private JLabel gameOverLabel;
+    private JLabel scoreLabel;
+    private JLabel coinTipLabel;
+
+    private JLabel totalCoinLabel;
+    private JButton rechargeBtn;
+    private int totalCoinCount = 0;
+    private Font harmonyFont;
+
+    private List<Rectangle> coins = new ArrayList<>();
+    private int coinCount = 0;
+    private long gameTime = 0;
+    private int obstacleSpeedMultiplier = 1;
+
+    private String[] dieTexts = {
+            "你撞晕啦！",
+            "障碍物：你太慢咯~",
+            "大意了吧！",
+            "下次一定！",
+            "这波不亏，金币到手！"
+    };
+    private boolean isRain;
+    private int rainOffset;
+    private int reviveCombo;
+
+    public GameMain() {
+        loadCustomFont();
+        loadCoinData();
+        setTitle("熊大快跑");
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setResizable(false);
+
+        setSize(WIDTH, HEIGHT);
+        setPreferredSize(new Dimension(WIDTH, HEIGHT));
+        setMinimumSize(new Dimension(WIDTH, HEIGHT));
+        setLocationRelativeTo(null);
+        setLayout(null);
+
+        initImages();
+        initWelcomePanel();
+        initGamePanel();
+        initMainMenu();
+        initGameOverPanel();
+
+        add(welcomePanel);
+        add(mainMenuPanel);
+        add(gamePanel);
+        add(gameOverPane);
+
+        welcomePanel.setVisible(true);
+        mainMenuPanel.setVisible(false);
+        gamePanel.setVisible(false);
+        gameOverPane.setVisible(false);
+        isInGame = false;
+
+        setVisible(true);
+        new Thread(this::gameLoop).start();
+    }
+
+    public void switchToMainMenu() {
+        welcomePanel.setVisible(false);
+        mainMenuPanel.setVisible(true);
+    }
+
+    private void loadCustomFont() {
+        try {
+            URL fontUrl = getClass().getClassLoader().getResource("fonts/harmony.ttf");
+            if (fontUrl != null) {
+                harmonyFont = Font.createFont(Font.TRUETYPE_FONT, fontUrl.openStream()).deriveFont(12f);
+                GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+                ge.registerFont(harmonyFont);
+            } else {
+                harmonyFont = new Font("SimHei", Font.PLAIN, 12);
+            }
+        } catch (Exception e) {
+            harmonyFont = new Font("SimHei", Font.PLAIN, 12);
+        }
+    }
+
+    private Font getCustomFont(int style, float size) {
+        return harmonyFont.deriveFont(style, size);
+    }
+
+    private void loadCoinData() {
+        File file = new File("coin_data.txt");
+        if (file.exists()) {
+            try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+                String line = br.readLine();
+                if (line != null && !line.isEmpty()) {
+                    totalCoinCount = Integer.parseInt(line);
+                }
+            } catch (Exception e) {
+                totalCoinCount = 0;
+            }
+        }
+    }
+
+    private void saveCoinData() {
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter("coin_data.txt"))) {
+            bw.write(String.valueOf(totalCoinCount));
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "金币数据保存失败！", "错误", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void initWelcomePanel() {
+        welcomePanel = new JPanel();
+        welcomePanel.setBounds(0, 0, WIDTH, HEIGHT);
+        welcomePanel.setBackground(Color.BLACK);
+        welcomePanel.setLayout(null);
+
+        lottiePlayer = new LottiePlayer("hello.json", this);
+        welcomePanel.add(lottiePlayer);
+    }
+
+
+    public void showMainMenu() {
+        if (!isInGame) {
+            mainMenuPanel.setVisible(true);
+            welcomePanel.setVisible(false);
+            updateTotalCoinLabel();
+        }
+    }
+
+    private void startGame() {
+        mainMenuPanel.setVisible(false);
+        gamePanel.setVisible(true);
+        gameOverPane.setVisible(false);
+        gameStarted = true;
+        gameOver = false;
+        isInGame = true;
+        gameTime = System.currentTimeMillis();
+        obstacleSpeedMultiplier = 1;
+        isRain = rand.nextBoolean();
+        rainOffset = 0;
+        reviveCombo = 0;
+        resetPropState();
+        initObstacles();
+        initProps();
+        gamePanel.requestFocus();
+    }
+
+    private void initGameOverPanel() {
+        gameOverPane = new JPanel();
+        gameOverPane.setBounds(WIDTH / 4, HEIGHT / 3, WIDTH / 2, 300);
+        gameOverPane.setBackground(new Color(0, 0, 0, 230));
+        gameOverPane.setLayout(new GridLayout(6, 1, 10, 10));
+        gameOverPane.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        gameOverPane.setVisible(false);
+        gameOverPane.setOpaque(true);
+        gameOverPane.setFocusable(false);
+
+        gameOverLabel = new JLabel("", SwingConstants.CENTER);
+        gameOverLabel.setForeground(Color.WHITE);
+        gameOverLabel.setFont(getCustomFont(Font.BOLD, 28));
+
+        scoreLabel = new JLabel("", SwingConstants.CENTER);
+        scoreLabel.setForeground(Color.YELLOW);
+        scoreLabel.setFont(getCustomFont(Font.PLAIN, 20));
+
+        coinTipLabel = new JLabel("", SwingConstants.CENTER);
+        coinTipLabel.setForeground(Color.ORANGE);
+        coinTipLabel.setFont(getCustomFont(Font.PLAIN, 16));
+
+        btnRestart = new JButton("重新开始");
+        btnRestart.setFont(getCustomFont(Font.PLAIN, 18));
+        btnRestart.setBackground(new Color(76, 175, 80));
+        btnRestart.setForeground(Color.WHITE);
+        btnRestart.setFocusPainted(false);
+        btnRestart.addActionListener(e -> {
+            playerX = 150;
+            playerY = HEIGHT / 2;
+            chaserX = 50;
+            chaserY = HEIGHT / 2;
+            mapOffset = 0;
+            gameOver = false;
+            gameStarted = false;
+            isInGame = false;
+            gameTime = 0;
+            obstacleSpeedMultiplier = 1;
+            resetPropState();
+            obstacles.clear();
+            props.clear();
+            coins.clear();
+            coinCount = 0;
+
+            gameOverPane.setVisible(false);
+            gamePanel.setVisible(false);
+            mainMenuPanel.setVisible(true);
+            updateTotalCoinLabel();
+        });
+
+        btnResume = new JButton("复活继续 (50金币)");
+        btnResume.setFont(getCustomFont(Font.PLAIN, 18));
+        btnResume.setBackground(new Color(255, 152, 0));
+        btnResume.setForeground(Color.WHITE);
+        btnResume.setFocusPainted(false);
+        btnResume.addActionListener(e -> {
+            if (totalCoinCount >= 50) {
+                totalCoinCount -= 50;
+                reviveCombo++;
+                totalCoinCount += 10 * reviveCombo;
+                long px = mapOffset + playerX;
+                obstacles.removeIf(r -> r.x > px && r.x < px + 800);
+                gameOver = false;
+                gameOverPane.setVisible(false);
+                gamePanel.requestFocus();
+                spawnRareProp((int) px + 500);
+                updateTotalCoinLabel();
+                saveCoinData();
+                JOptionPane.showMessageDialog(this, "复活成功！连续复活x" + reviveCombo + "，奖励" + (10 * reviveCombo) + "金币", "恭喜", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                coinTipLabel.setText("金币不足！需要50金币");
+            }
+        });
+
+        JLabel emptyLabel = new JLabel();
+
+        gameOverPane.add(gameOverLabel);
+        gameOverPane.add(scoreLabel);
+        gameOverPane.add(coinTipLabel);
+        gameOverPane.add(btnRestart);
+        gameOverPane.add(btnResume);
+        gameOverPane.add(emptyLabel);
+
+        add(gameOverPane);
+    }
+
+    private void gameLoop() {
+        while (true) {
+            if (gameStarted && !gameOver && isInGame) {
+                autoMovePlayer();
+                controlPlayer();
+                chaserFollowPlayer();
+                spawnObstacles();
+                checkCoinPickup();
+                checkPropPickup();
+                updateDifficulty();
+                if (!isInvincible) {
+                    checkObstacleHit();
+                }
+            }
+            repaint();
+            try {
+                Thread.sleep(16);
+            } catch (InterruptedException ignored) {}
+        }
+    }
+
+    private void checkObstacleHit() {
+        long pWorldX = mapOffset + playerX;
+        Rectangle playerBox = new Rectangle((int) pWorldX, playerY, GameConstants.PLAYER_SIZE, GameConstants.PLAYER_SIZE);
+
+        for (Rectangle r : obstacles) {
+            if (playerBox.intersects(r)) {
+                gameOver = true;
+                totalCoinCount += coinCount;
+                saveCoinData();
+                gameOverLabel.setText(dieTexts[rand.nextInt(dieTexts.length)]);
+                scoreLabel.setText("本次积分: " + coinCount + " | 游戏时长: " + (System.currentTimeMillis() - gameTime) / 1000 + "秒");
+                coinTipLabel.setText("当前总金币: " + totalCoinCount);
+                if (rand.nextInt(100) < 30) {
+                    spawnRareProp((int) pWorldX + 300);
+                }
+                SwingUtilities.invokeLater(() -> {
+                    gameOverPane.setVisible(true);
+                    gamePanel.requestFocusInWindow();
+                    updateTotalCoinLabel();
+                });
+                return;
+            }
+        }
+    }
+
+    private void updateDifficulty() {
+        if (gameTime > 0) {
+            long playTime = (System.currentTimeMillis() - gameTime) / 1000;
+            if (playTime > 10 && playTime % 10 == 0) {
+                obstacleSpeedMultiplier = (int) (1 + playTime / 10);
+                if (obstacleSpeedMultiplier > 3) obstacleSpeedMultiplier = 3;
+            }
+        }
+    }
+
+    private void spawnRareProp(int x) {
+        int y = rand.nextInt(GameConstants.HEIGHT - GameConstants.PROP_SIZE);
+        props.add(new Prop(x, y, PropType.INVINCIBLE));
+    }
+
+    // 主界面初始化（背景为pictures/1.png）
+    private void initMainMenu() {
+        // 1. 加载主界面背景图
+        final Image mainBgImage;
+        URL imgUrl = getClass().getResource("/pictures/1.png");
+        if (imgUrl != null) {
+            mainBgImage = Toolkit.getDefaultToolkit().getImage(imgUrl);
+        } else {
+            File bgFile = new File("pictures/1.png");
+            if (bgFile.exists()) {
+                mainBgImage = Toolkit.getDefaultToolkit().getImage(bgFile.getAbsolutePath());
+            } else {
+                mainBgImage = null;
+            }
+        }
+
+        // 2. 绘制主界面背景
+        mainMenuPanel = new JPanel() {
+            @Override
+            protected void paintComponent(Graphics g) {
+                super.paintComponent(g);
+                Graphics2D g2 = (Graphics2D) g;
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+                if (mainBgImage != null) {
+                    g2.drawImage(mainBgImage, 0, 0, WIDTH, HEIGHT, this);
+                } else {
+                    g2.setColor(new Color(30, 30, 60));
+                    g2.fillRect(0, 0, WIDTH, HEIGHT);
+                }
+            }
+        };
+        mainMenuPanel.setBounds(0, 0, WIDTH, HEIGHT);
+        mainMenuPanel.setLayout(null);
+
+        JPanel centerPanel = new JPanel();
+        centerPanel.setBounds(0, 50, WIDTH, HEIGHT - 100);
+        centerPanel.setLayout(new GridLayout(6, 1, 20, 20));
+        centerPanel.setBorder(BorderFactory.createEmptyBorder(60, 200, 60, 200));
+        centerPanel.setOpaque(false);
+
+        JLabel titleLabel = new JLabel("Auto Run Chase", SwingConstants.CENTER);
+        titleLabel.setForeground(Color.WHITE);
+        titleLabel.setFont(getCustomFont(Font.BOLD, 32));
+        centerPanel.add(titleLabel);
+
+        btnCustomPlayer = new JButton("自定义玩家图标");
+        btnCustomPlayer.setFont(getCustomFont(Font.PLAIN, 18));
+        btnCustomPlayer.addActionListener(e -> ImageLoader.customImage(this, "player", img -> playerImage = img));
+        centerPanel.add(btnCustomPlayer);
+
+        btnCustomBackground = new JButton("自定义背景");
+        btnCustomBackground.setFont(getCustomFont(Font.PLAIN, 18));
+        btnCustomBackground.addActionListener(e -> ImageLoader.customImage(this, "background", img -> backgroundImage = img));
+        centerPanel.add(btnCustomBackground);
+
+        btnCustomChaser = new JButton("自定义追逐者图标");
+        btnCustomChaser.setFont(getCustomFont(Font.PLAIN, 18));
+        btnCustomChaser.addActionListener(e -> ImageLoader.customImage(this, "chaser", img -> chaserImage = img));
+        centerPanel.add(btnCustomChaser);
+
+        btnCustomObstacle = new JButton("自定义障碍物图标");
+        btnCustomObstacle.setFont(getCustomFont(Font.PLAIN, 18));
+        btnCustomObstacle.addActionListener(e -> ImageLoader.customImage(this, "obstacle", img -> obstacleImage = img));
+        centerPanel.add(btnCustomObstacle);
+
+        btnStartGame = new JButton("开始游戏");
+        btnStartGame.setFont(getCustomFont(Font.BOLD, 20));
+        btnStartGame.setBackground(Color.GREEN);
+        btnStartGame.setForeground(Color.WHITE);
+        btnStartGame.setFocusPainted(false);
+        btnStartGame.addActionListener(e -> startGame());
+        centerPanel.add(btnStartGame);
+
+        totalCoinLabel = new JLabel("总金币: 0", SwingConstants.CENTER);
+        totalCoinLabel.setForeground(Color.YELLOW);
+        totalCoinLabel.setFont(getCustomFont(Font.BOLD, 20));
+        totalCoinLabel.setBounds(WIDTH - 200, 20, 150, 30);
+
+        rechargeBtn = new JButton("充值");
+        rechargeBtn.setFont(getCustomFont(Font.PLAIN, 16));
+        rechargeBtn.setBackground(new Color(255, 215, 0));
+        rechargeBtn.setForeground(Color.BLACK);
+        rechargeBtn.setFocusPainted(false);
+        rechargeBtn.setBounds(WIDTH - 200, 60, 150, 30);
+        rechargeBtn.addActionListener(e -> {
+            String input = JOptionPane.showInputDialog(this, "请输入要充值的金币数量：", "金币充值", JOptionPane.PLAIN_MESSAGE);
+            if (input != null && !input.isEmpty()) {
+                try {
+                    int num = Integer.parseInt(input);
+                    if (num > 0 && num <= 9999) {
+                        totalCoinCount += num;
+                        updateTotalCoinLabel();
+                        saveCoinData();
+                        JOptionPane.showMessageDialog(this, "充值成功！获得" + num + "金币", "恭喜", JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        JOptionPane.showMessageDialog(this, "请输入1-9999之间的数字！", "提示", JOptionPane.WARNING_MESSAGE);
+                    }
+                } catch (NumberFormatException ex) {
+                    JOptionPane.showMessageDialog(this, "请输入有效的数字！", "错误", JOptionPane.ERROR_MESSAGE);
+                }
+            }
+        });
+
+        mainMenuPanel.add(centerPanel);
+        mainMenuPanel.add(totalCoinLabel);
+        mainMenuPanel.add(rechargeBtn);
+    }
+
+    private void updateTotalCoinLabel() {
+        SwingUtilities.invokeLater(() -> {
+            totalCoinLabel.setText("总金币: " + totalCoinCount);
+        });
+    }
+
+    private void initImages() {
+        playerImage = loadDefaultImage("pictures/1.png", GameConstants.PLAYER_SIZE);
+        if (playerImage == null) {
+            playerImage = ImageLoader.createDefaultImage(Color.CYAN, GameConstants.PLAYER_SIZE);
+        }
+
+        chaserImage = loadDefaultImage("pictures/2.png", GameConstants.CHASER_SIZE);
+        if (chaserImage == null) {
+            chaserImage = ImageLoader.createDefaultImage(Color.ORANGE, GameConstants.CHASER_SIZE);
+        }
+
+        backgroundImage = loadDefaultImage("pictures/2.png", GameConstants.WIDTH, GameConstants.HEIGHT);
+        if (backgroundImage == null) {
+            backgroundImage = ImageLoader.createDefaultImage(Color.BLACK, GameConstants.WIDTH, GameConstants.HEIGHT);
+        }
+
+        obstacleImage = ImageLoader.createDefaultImage(Color.RED, GameConstants.OBSTACLE_SIZE);
+    }
+
+    private Image loadDefaultImage(String path, int size) {
+        return loadDefaultImage(path, size, size);
+    }
+
+    private Image loadDefaultImage(String path, int width, int height) {
+        try {
+            URL imgUrl = getClass().getClassLoader().getResource(path);
+            if (imgUrl == null) {
+                imgUrl = new URL("file:" + path);
+            }
+            Image image = new ImageIcon(imgUrl).getImage();
+            return image.getScaledInstance(width, height, Image.SCALE_SMOOTH);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private void initGamePanel() {
+        gamePanel = new GamePanel(this);
+        gamePanel.setBounds(0, 0, WIDTH, HEIGHT);
+        gamePanel.setVisible(false);
+        add(gamePanel);
+
+        gamePanel.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (gameOver) return;
+                switch (e.getKeyCode()) {
+                    case KeyEvent.VK_W -> up = true;
+                    case KeyEvent.VK_S -> down = true;
+                    case KeyEvent.VK_D -> right = true;
+                }
+            }
+
+            @Override
+            public void keyReleased(KeyEvent e) {
+                switch (e.getKeyCode()) {
+                    case KeyEvent.VK_W -> up = false;
+                    case KeyEvent.VK_S -> down = false;
+                    case KeyEvent.VK_D -> right = false;
+                }
+            }
+        });
+    }
+
+    private void resetPropState() {
+        isInvincible = false;
+        isSpeedUp = false;
+        invincibleEndTime = 0;
+        speedUpEndTime = 0;
+        propTip = "";
+        propTipEndTime = 0;
+        props.clear();
+        coins.clear();
+        coinCount = 0;
+    }
+
+    private void initObstacles() {
+        obstacles.clear();
+        coins.clear();
+        long lastX = GameConstants.INIT_OBSTACLE_START_X;
+        for (int i = 0; i < GameConstants.INIT_OBSTACLE_COUNT * obstacleSpeedMultiplier; i++) {
+            lastX += GameConstants.OBSTACLE_MIN_GAP + rand.nextInt(50);
+            int y = rand.nextInt(GameConstants.HEIGHT - GameConstants.OBSTACLE_SIZE);
+            obstacles.add(new Rectangle((int) lastX, y, GameConstants.OBSTACLE_SIZE, GameConstants.OBSTACLE_SIZE));
+            spawnPropIfChance((int) lastX);
+
+            if (rand.nextBoolean()) {
+                int cy = rand.nextInt(GameConstants.HEIGHT - 20);
+                coins.add(new Rectangle((int) lastX + rand.nextInt(-30, 30), cy, 20, 20));
+            }
+        }
+    }
+
+    private void initProps() {
+        props.clear();
+        long lastX = GameConstants.INIT_OBSTACLE_START_X + 100;
+        for (int i = 0; i < GameConstants.INIT_PROP_COUNT; i++) {
+            lastX += GameConstants.OBSTACLE_MIN_GAP * 2 + rand.nextInt(100);
+            int y = rand.nextInt(GameConstants.HEIGHT - GameConstants.PROP_SIZE);
+            PropType type = PropType.values()[rand.nextInt(PropType.values().length)];
+            props.add(new Prop((int) lastX, y, type));
+        }
+    }
+
+    private void spawnPropIfChance(int x) {
+        if (rand.nextInt(100) < GameConstants.PROP_SPAWN_CHANCE * obstacleSpeedMultiplier) {
+            int y = rand.nextInt(GameConstants.HEIGHT - GameConstants.PROP_SIZE);
+            PropType type = PropType.values()[rand.nextInt(PropType.values().length)];
+            props.add(new Prop(x + rand.nextInt(50) + 20, y, type));
+        }
+    }
+
+    private void spawnObstacles() {
+        Iterator<Rectangle> it = obstacles.iterator();
+        while (it.hasNext()) {
+            Rectangle r = it.next();
+            if (r.x < mapOffset - 200)
+                it.remove();
+        }
+
+        Iterator<Prop> propIt = props.iterator();
+        while (propIt.hasNext()) {
+            Prop prop = propIt.next();
+            if (prop.getX() < mapOffset - GameConstants.PROP_SIZE)
+                propIt.remove();
+        }
+
+        Iterator<Rectangle> coinIt = coins.iterator();
+        while (coinIt.hasNext()) {
+            Rectangle c = coinIt.next();
+            if (c.x < mapOffset - 50)
+                coinIt.remove();
+        }
+
+        long maxX = obstacles.stream()
+                .mapToLong(r -> (long) r.getX())
+                .max()
+                .orElse(GameConstants.INIT_OBSTACLE_START_X);
+        int farRight = (int) (mapOffset + GameConstants.WIDTH + 300);
+        if (maxX < farRight) {
+            for (int i = 0; i < GameConstants.SPAWN_OBSTACLE_COUNT * obstacleSpeedMultiplier; i++) {
+                long nx = maxX + GameConstants.OBSTACLE_MIN_GAP + rand.nextInt(50);
+                int ny = rand.nextInt(GameConstants.HEIGHT - GameConstants.OBSTACLE_SIZE);
+                obstacles.add(new Rectangle((int) nx, ny, GameConstants.OBSTACLE_SIZE, GameConstants.OBSTACLE_SIZE));
+                spawnPropIfChance((int) nx);
+                maxX = nx;
+
+                if (rand.nextBoolean()) {
+                    int cy = rand.nextInt(GameConstants.HEIGHT - 20);
+                    coins.add(new Rectangle((int) nx + rand.nextInt(-30, 30), cy, 20, 20));
+                }
+            }
+        }
+    }
+
+    private void checkPropPickup() {
+        long currentTime = System.currentTimeMillis();
+        for (Prop prop : props) {
+            if (prop.isActive() && prop.isPicked(playerX, playerY, mapOffset)) {
+                prop.setActive(false);
+                PropType type = prop.getType();
+                propTip = "拾取了" + type.getName() + "道具！";
+                propTipEndTime = currentTime + 2000;
+
+                switch (type) {
+                    case INVINCIBLE:
+                        isInvincible = true;
+                        invincibleEndTime = currentTime + type.getDuration() * obstacleSpeedMultiplier;
+                        break;
+                    case SPEED_UP:
+                        isSpeedUp = true;
+                        speedUpEndTime = currentTime + type.getDuration() * obstacleSpeedMultiplier;
+                        break;
+                    case CLEAR_OBSTACLE:
+                        clearAllObstacles();
+                        break;
+                }
+            }
+        }
+
+        if (isInvincible && currentTime > invincibleEndTime) {
+            isInvincible = false;
+            propTip = "无敌效果结束！";
+            propTipEndTime = currentTime + 2000;
+        }
+        if (isSpeedUp && currentTime > speedUpEndTime) {
+            isSpeedUp = false;
+            propTip = "加速效果结束！";
+            propTipEndTime = currentTime + 2000;
+        }
+    }
+
+    private void checkCoinPickup() {
+        long px = mapOffset + playerX;
+        Rectangle playerBox = new Rectangle((int) px, playerY, GameConstants.PLAYER_SIZE, GameConstants.PLAYER_SIZE);
+
+        Iterator<Rectangle> it = coins.iterator();
+        while (it.hasNext()) {
+            Rectangle c = it.next();
+            if (playerBox.intersects(c)) {
+                it.remove();
+                coinCount++;
+                if (coinCount % 10 == 0) {
+                    propTip = "金币x10！获得临时加速";
+                    isSpeedUp = true;
+                    speedUpEndTime = System.currentTimeMillis() + 1000;
+                }
+            }
+        }
+    }
+
+    private void clearAllObstacles() {
+        obstacles.clear();
+        new Thread(() -> {
+            try {
+                Thread.sleep(2000 / obstacleSpeedMultiplier);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            initObstacles();
+        }).start();
+    }
+
+    private void autoMovePlayer() {
+        int speed = isSpeedUp ? GameConstants.PLAYER_AUTO_SPEED_SPEED_UP : GameConstants.PLAYER_AUTO_SPEED;
+        mapOffset += speed * obstacleSpeedMultiplier;
+        chaserX += speed * obstacleSpeedMultiplier;
+    }
+
+    private void controlPlayer() {
+        int controlSpeed = GameConstants.PLAYER_CONTROL_SPEED * obstacleSpeedMultiplier;
+        if (up && playerY > 0)
+            playerY -= controlSpeed;
+        if (down && playerY < GameConstants.HEIGHT - GameConstants.PLAYER_SIZE)
+            playerY += controlSpeed;
+        if (right && playerX < GameConstants.WIDTH / 2 + 50)
+            playerX += controlSpeed;
+    }
+
+    private void chaserFollowPlayer() {
+        int followSpeed = GameConstants.CHASER_FOLLOW_SPEED * obstacleSpeedMultiplier;
+        if (chaserY < playerY - 10)
+            chaserY += followSpeed;
+        if (chaserY > playerY + 10)
+            chaserY -= followSpeed;
+
+        int targetChaserX = (int) (mapOffset + playerX - 100);
+        if (chaserX < targetChaserX)
+            chaserX += followSpeed;
+        if (chaserX > targetChaserX)
+            chaserX -= followSpeed;
+    }
+
+    // Getter方法
+    public Image getPlayerImage() { return playerImage; }
+    public Image getChaserImage() { return chaserImage; }
+    public Image getBackgroundImage() { return backgroundImage; }
+    public Image getObstacleImage() { return obstacleImage; }
+    public List<Rectangle> getObstacles() { return obstacles; }
+    public List<Prop> getProps() { return props; }
+    public List<Rectangle> getCoins() { return coins; }
+    public int getCoinCount() { return coinCount; }
+    public int getTotalCoinCount() { return totalCoinCount; }
+    public int getPlayerX() { return playerX; }
+    public int getPlayerY() { return playerY; }
+    public int getChaserX() { return chaserX; }
+    public int getChaserY() { return chaserY; }
+    public long getMapOffset() { return mapOffset; }
+    public boolean isGameOver() { return gameOver; }
+    public boolean isGameStarted() { return gameStarted; }
+    public boolean isInvincible() { return isInvincible; }
+    public boolean isSpeedUp() { return isSpeedUp; }
+    public String getPropTip() { return propTip; }
+    public long getPropTipEndTime() { return propTipEndTime; }
+    public int getObstacleSpeedMultiplier() { return obstacleSpeedMultiplier; }
+    public boolean isRain() { return isRain; }
+    public int getRainOffset() { return rainOffset; }
+    public void setRainOffset(int offset) { rainOffset = offset; }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> new GameMain().setVisible(true));
+    }
+}
